@@ -3,15 +3,20 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 import EDA_functions
 
-def select_an_images (id,df_images) : 
-    url = df_images[df_images['id']== id]["images"]
-    first_non_empty = url[url.apply(lambda x: len(x) > 0)].iloc[0]  # Get the first non-empty value
-    url = first_non_empty[0].get("small_image_url")
-    print(f"URL de l'image de l'objet {url}")
-    EDA_functions.show_image(url)
+def select_an_images (id,df_metadata) : 
+        url = df_metadata[df_metadata['id']== id]["images"]
+        #first_non_empty = url[url.apply(lambda x: len(x) > 0)].iloc[0]  # Get the first non-empty value
+        #url = first_non_empty[0].get("small_image_url")
+        for element in url : 
+            #print(element)
+            el = element[0].get("large")
+            print(f"URL de l'image de l'objet {el}")
+        EDA_functions.show_image(el)
 
 
-def Csimilarity_user_recommendation(df_recommendation, select_userid , df_images, k_similars = 10 , user_similarity_threshold = 0.3, nb_recommendation = 7) : 
+
+
+def Csimilarity_user_recommendation(df_recommendation, select_userid , df_metadata, k_similars = 10 , user_similarity_threshold = 0.3, nb_recommendation = 7) : 
 
     print(f"The number of unique products is : {df_recommendation.id.nunique()}")
     print(f"The number of unique users is : {df_recommendation.user.nunique()} \n")
@@ -25,7 +30,7 @@ def Csimilarity_user_recommendation(df_recommendation, select_userid , df_images
     products_rated_by_a = df_recommendation_pivot.loc[select_userid, df_recommendation_pivot.loc[select_userid, :] != 0].index
     print ("   v v v v v Here is images of the product our user bought in the past :    v v v v v")
     for id in products_rated_by_a : 
-        select_an_images(id, df_images)
+        select_an_images(id, df_metadata)
 
     # top k similar users
     similar_users = df_similarity_matrix[df_similarity_matrix[select_userid]>user_similarity_threshold][select_userid].sort_values(ascending=False)[:k_similars]
@@ -64,8 +69,9 @@ def Csimilarity_user_recommendation(df_recommendation, select_userid , df_images
 
     i = 1
     for index, rows in top_recommendation.iterrows(): 
-        print (f"*************** Recommendation number {i} *************** : \n Product id : {index}, associated weight : {rows['weighted_averages']}")
-        select_an_images(index,df_images)
-        i += 1
+        if rows['weighted_averages'] > 0.001 : 
+            print (f"*************** Recommendation number {i} *************** : \n Product id : {index}, associated weight : {rows['weighted_averages']}")
+            select_an_images(index,df_metadata)
+            i += 1
 
     return top_recommendation
