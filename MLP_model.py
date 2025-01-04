@@ -11,7 +11,15 @@ import argparse
 from evaluate import evaluate_model
 from load_dataset import Dataset
 import sys
+from tensorflow.config import list_physical_devices
 
+
+# Check la disponibility of GPU
+gpus = list_physical_devices('GPU')
+if gpus:
+    print(f"GPUs disponibles : {[gpu.name for gpu in gpus]}")
+else:
+    print("Aucun GPU détecté. Exécution sur CPU.")
 
 #################### Arguments ####################
 def parse_args():
