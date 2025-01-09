@@ -10,7 +10,8 @@ from time import time
 import argparse
 from evaluate import evaluate_model
 from load_dataset import Dataset
-import sys
+
+
 
 
 #################### Arguments ####################
@@ -98,8 +99,8 @@ if __name__ == '__main__':
     epochs = args.epochs
     verbose = args.verbose
     
-    topK = 10
-    evaluation_threads = 1 #mp.cpu_count()
+    topK = 6
+    evaluation_threads = 12
     print("MLP arguments: %s " %(args))
     model_out_file = 'Pretrain/%s_MLP_%d.h5' % (args.layers, time())
     
@@ -138,7 +139,7 @@ if __name__ == '__main__':
         # Training        
         hist = model.fit([np.array(user_input), np.array(item_input)], #input
                          np.array(labels), # labels 
-                         batch_size=batch_size, nb_epoch=1, verbose=0, shuffle=True)
+                         batch_size=batch_size, epochs=1, verbose=0, shuffle=True)
         t2 = time()
 
         # Evaluation
