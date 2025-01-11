@@ -11,7 +11,7 @@ _testRatings = None
 _testNegatives = None
 _K = None
 
-def evaluate_model(model, testRatings, testNegatives, K, num_thread):
+def evaluate_model(model, testRatings, testNegatives, K):
     """
     Evaluate the performance (Hit_Ratio, NDCG) of top-K recommendation
     Return: score of each test rating.
@@ -26,14 +26,6 @@ def evaluate_model(model, testRatings, testNegatives, K, num_thread):
     _K = K
         
     hits, ndcgs = [],[]
-    if(num_thread > 1): # Multi-thread
-        pool = multiprocessing.Pool(processes=num_thread)
-        res = pool.map(eval_one_rating, range(len(_testRatings)))
-        pool.close()
-        pool.join()
-        hits = [r[0] for r in res]
-        ndcgs = [r[1] for r in res]
-        return (hits, ndcgs)
     # Single thread
     for idx in range(len(_testRatings)):
         (hr,ndcg) = eval_one_rating(idx)
