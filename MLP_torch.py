@@ -34,85 +34,79 @@ def parse_args():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+# Définition du modèle en PyTorch
 class MLPModel(nn.Module):
-    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8]):
+    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8], reg_layers=[0, 0, 0, 0]):
         super(MLPModel, self).__init__()
         
-        # Embedding layers for users and items
+        # Embedding layers
         self.user_embedding = nn.Embedding(num_users, layers[0] // 2)
         self.item_embedding = nn.Embedding(num_items, layers[0] // 2)
         
         # Fully connected layers
         layer_sizes = [layers[0]] + layers
-        self.fc_layers = nn.Sequential()
+        self.fc_layers = nn.ModuleList()
+        
         for i in range(1, len(layer_sizes)):
-            self.fc_layers.add_module(f"fc{i}", nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
-            self.fc_layers.add_module(f"relu{i}", nn.ReLU())
+            self.fc_layers.append(
+                nn.Linear(layer_sizes[i-1], layer_sizes[i])
+            )
+            self.fc_layers.append(nn.ReLU())
         
         # Final prediction layer
-        self.prediction = nn.Linear(layers[-1], 1)  # Single output (logit) for binary classification
+        self.prediction = nn.Linear(layers[-1], 1)  # Assurez-vous que cela correspond au nombre de classes
 
     def forward(self, user_input, item_input):
-        # Generate user and item embeddings
         user_latent = self.user_embedding(user_input)
         item_latent = self.item_embedding(item_input)
         
-        # Concatenate user and item embeddings
         vector = torch.cat([user_latent, item_latent], dim=-1)
         
-        # Pass through the fully connected layers
-        vector = self.fc_layers(vector)
+        for layer in self.fc_layers:
+            vector = layer(vector)
         
-        # Final prediction (logit)
-        prediction = self.prediction(vector).squeeze(-1)  # Remove the last unnecessary dimension
+        prediction = self.prediction(vector)
         
-        # Apply sigmoïde to output logits and convert to probability
-        probability = torch.sigmoid(prediction)
-        
-        return probability
-
-    def predict(self, user_input, item_input, batch_size=100):
-        # Switch the model to evaluation mode
-        self.eval()
+        return prediction
+    
+    def predict(self, user_input, item_input, batch_size=256):
+        self.eval()  # Met le modèle en mode évaluation
         all_predictions = []
 
-        # Make predictions in batches
+        # Prédictions par lots
         for i in range(0, len(user_input), batch_size):
             batch_user_input = torch.tensor(user_input[i:i + batch_size], dtype=torch.long).to(device)
             batch_item_input = torch.tensor(item_input[i:i + batch_size], dtype=torch.long).to(device)
 
-            with torch.no_grad():  # Disable gradient computation
-                predictions = self.forward(batch_user_input, batch_item_input)
-                all_predictions.append(predictions)
+            with torch.no_grad():  # Désactive la rétropropagation
+                batch_preds = self.forward(batch_user_input, batch_item_input)
+                all_predictions.append(batch_preds)
 
         return torch.cat(all_predictions, dim=0)
 
-
+# Fonction pour générer des instances d'entraînement
 def get_train_instances(train, num_negatives):
-    """ Generate user-item training instances with negative sampling """
     user_input, item_input, labels = [], [], []
-    num_users, num_items = train.shape
-
-    for (user, item) in zip(*train.nonzero()):
+    num_items = train.shape[1]
+    for (u, i) in train.keys():
         # Positive instance
-        user_input.append(user)
-        item_input.append(item)
-        labels.append(1)
-
+        user_input.append(u)
+        item_input.append(i)
+        labels.append(1)  # Positive instance label = 1
+        
         # Negative instances
-        for _ in range(num_negatives):
-            neg_item = np.random.randint(num_items)
-            while (user, neg_item) in zip(*train.nonzero()):
-                neg_item = np.random.randint(num_items)
-            user_input.append(user)
-            item_input.append(neg_item)
-            labels.append(0)
-
+        for t in range(num_negatives):
+            j = np.random.randint(num_items)
+            while (u, j) in train:
+                j = np.random.randint(num_items)
+            user_input.append(u)
+            item_input.append(j)
+            labels.append(0)  # Negative instance label = 0
     return user_input, item_input, labels
-
 
 if __name__ == '__main__':
     args = parse_args()
+    path = args.path
     layers = eval(args.layers)
     reg_layers = eval(args.reg_layers)
     num_negatives = args.num_neg
@@ -121,55 +115,59 @@ if __name__ == '__main__':
     batch_size = args.batch_size
     epochs = args.epochs
     verbose = args.verbose
-
+    
     topK = 10
-    print(f"MLP arguments: {args}")
-    model_out_file = f"Pretrain/{args.layers}_MLP_{int(time())}.pth"
+    evaluation_threads = 1
+    print("MLP arguments: %s " %(args))
+    model_out_file = 'Pretrain/%s_MLP_%d.pth' % (args.layers, time())
     
     # Loading data
     t1 = time()
     dataset = Dataset(args.path)
     train, testRatings, testNegatives = dataset.trainMatrix, dataset.testRatings, dataset.testNegatives
     num_users, num_items = train.shape
-    print(f"Load data done [{time() - t1:.1f} s]. #user={num_users}, #item={num_items}, "
-          f"#train={train.nnz}, #test={len(testRatings)}")
+    print("Load data done [%.1f s]. #user=%d, #item=%d, #train=%d, #test=%d" 
+          %(time()-t1, num_users, num_items, train.nnz, len(testRatings)))
     
-    # Build model
-    model = MLPModel(num_users, num_items, layers).to(device)
-
-
+    # Build model and move it to GPU if available
+    model = MLPModel(num_users, num_items, layers, reg_layers).to(device)
+    
     # Set optimizer
-    optimizer = {
-        "adagrad": optim.Adagrad,
-        "rmsprop": optim.RMSprop,
-        "adam": optim.Adam,
-        "sgd": optim.SGD,
-    }.get(learner.lower(), optim.SGD)(model.parameters(), lr=learning_rate)
-
+    if learner.lower() == "adagrad": 
+        optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
+    elif learner.lower() == "rmsprop":
+        optimizer = optim.RMSprop(model.parameters(), lr=learning_rate)
+    elif learner.lower() == "adam":
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    else:
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate)    
+    
     # Check Init performance
     t1 = time()
     (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK)
     hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
-    print(f'Init: HR = {hr:.4f}, NDCG = {ndcg:.4f} [{time() - t1:.1f}]')
-
-    # Print to verify where the model is located (GPU or CPU)
-    print(f"Model is on device: {next(model.parameters()).device}")
+    print('Init: HR = %.4f, NDCG = %.4f [%.1f]' %(hr, ndcg, time()-t1))
     
     # Train model
     best_hr, best_ndcg, best_iter = hr, ndcg, -1
     for epoch in range(epochs):
         t1 = time()
+        # Generate training instances
         user_input, item_input, labels = get_train_instances(train, num_negatives)
-
-        # Convert to tensors
+        
+        # Convert to tensors and move to GPU
         user_input = torch.LongTensor(user_input).to(device)
         item_input = torch.LongTensor(item_input).to(device)
-        labels = torch.FloatTensor(labels).to(device)  # BCE Loss expects float
 
-        # Training
+        labels = torch.FloatTensor(labels).to(device)  # Labels should be LongTensor for CrossEntropyLoss
+    
+        # Training        
         model.train()
         optimizer.zero_grad()
         predictions = model(user_input, item_input)
+        
+        # Compute loss
+        labels = labels.unsqueeze(1)
         loss_fn = nn.BCEWithLogitsLoss()
         loss = loss_fn(predictions, labels)
         loss.backward()
@@ -178,13 +176,14 @@ if __name__ == '__main__':
         t2 = time()
 
         # Evaluation
-        if epoch % verbose == 0:
+        if epoch % verbose == 0:  # Utilisation de verbose pour afficher les résultats chaque X epochs
             model.eval()
             (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK)
-            hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
-            print(f'Iteration {epoch} [{t2 - t1:.1f} s]: HR = {hr:.4f}, NDCG = {ndcg:.4f}, loss = {loss.item():.4f}')
+            hr, ndcg, loss_val = np.array(hits).mean(), np.array(ndcgs).mean(), loss.item()
+            print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]' 
+                  % (epoch,  t2-t1, hr, ndcg, loss_val, time()-t2))
             if hr > best_hr:
                 best_hr, best_ndcg, best_iter = hr, ndcg, epoch
-                torch.save(model.state_dict(), model_out_file)
+                # torch.save(model.state_dict(), model_out_file)
 
-    print(f"End. Best Iteration {best_iter}:  HR = {best_hr:.4f}, NDCG = {best_ndcg:.4f}.")
+    print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
