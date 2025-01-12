@@ -5,8 +5,8 @@ This project implements various recommendation system techniques ranging from ba
 
 ## Authors
 - 🔹 **Elmimouni Zakarya** – ENSAE Paris (zakarya.elmimouni@ensae.fr)
-- 🔹 **Kkairaldin Ahmed** – ENSAE Paris (ahmed.khairaldin@ensae.fr)
-- 🔹 **RAZIG Amine** – ENSAE Paris (amine.razig@ensae.fr)
+- 🔹 **Khairaldin Ahmed** – ENSAE Paris (ahmed.khairaldin@ensae.fr)
+- 🔹 **Razig Amine** – ENSAE Paris (amine.razig@ensae.fr)
 
 ## Table of Contents
 1. [Objective](#objective)
