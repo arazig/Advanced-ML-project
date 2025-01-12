@@ -71,11 +71,25 @@ def get_precision(ranklist, gtItems):
     return relevant / len(ranklist)
 
 def getNDCG(ranklist, gtItems):
-    for i in range(len(ranklist)):
-        item = ranklist[i]
+    """
+    Calcule la métrique NDCG pour une liste ordonnée (ranklist) et les items pertinents (gtItems).
+
+    Args:
+        ranklist: Liste des items prédits, ordonnée par pertinence.
+        gtItems: Liste des items pertinents (taille fixe de 2).
+
+    Returns:
+        float: La métrique NDCG normalisée.
+    """
+    dcg = 0.0
+    for i, item in enumerate(ranklist):
         if item in gtItems:
-            return math.log(2) / math.log(i+2)
-    return 0
+            dcg += math.log(2) / math.log(i + 2)  # DCG pour cet item trouvé
+    
+    # Calcul de l'IDCG (DCG idéal)
+    idcg = sum(math.log(2) / math.log(i + 2) for i in range(len(gtItems)))
+
+    return dcg / idcg if idcg > 0 else 0.0
 
 def get_recall(ranklist, gtItems):
     relevant = 0
