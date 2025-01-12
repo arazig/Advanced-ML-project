@@ -34,12 +34,12 @@ def parse_args():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Definition of the MLPModel in PyTorch
+# Définition du modèle en PyTorch
 class MLPModel(nn.Module):
-    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8]):
+    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8], reg_layers=[0, 0, 0, 0]):
         super(MLPModel, self).__init__()
         
-        # Embedding layers for users and items
+        # Embedding layers
         self.user_embedding = nn.Embedding(num_users, layers[0] // 2)
         self.item_embedding = nn.Embedding(num_items, layers[0] // 2)
         
@@ -48,45 +48,61 @@ class MLPModel(nn.Module):
         self.fc_layers = nn.ModuleList()
         
         for i in range(1, len(layer_sizes)):
-            self.fc_layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
+            self.fc_layers.append(
+                nn.Linear(layer_sizes[i-1], layer_sizes[i])
+            )
             self.fc_layers.append(nn.ReLU())
         
         # Final prediction layer
-        self.prediction = nn.Linear(layers[-1], 1)  # Single output (logit) for binary classification
+        self.prediction = nn.Linear(layers[-1], 1)  # Assurez-vous que cela correspond au nombre de classes
 
     def forward(self, user_input, item_input):
-        # Generate user and item embeddings
         user_latent = self.user_embedding(user_input)
         item_latent = self.item_embedding(item_input)
         
-        # Concatenate user and item embeddings
         vector = torch.cat([user_latent, item_latent], dim=-1)
         
-        # Pass through the fully connected layers
         for layer in self.fc_layers:
             vector = layer(vector)
         
-        # Final prediction (logit)
-        prediction = self.prediction(vector).squeeze(-1)  # Remove the last unnecessary dimension
+        prediction = self.prediction(vector)
+        
         return prediction
     
     def predict(self, user_input, item_input, batch_size=256):
-        # Switch the model to evaluation mode
-        self.eval()
+        self.eval()  # Met le modèle en mode évaluation
         all_predictions = []
 
-        # Make predictions in batches
+        # Prédictions par lots
         for i in range(0, len(user_input), batch_size):
             batch_user_input = torch.tensor(user_input[i:i + batch_size], dtype=torch.long).to(device)
             batch_item_input = torch.tensor(item_input[i:i + batch_size], dtype=torch.long).to(device)
 
-            with torch.no_grad():  # Disable gradient computation
-                logits = self.forward(batch_user_input, batch_item_input)
-                predictions = torch.sigmoid(logits)  # Convert logits to probabilities
-                all_predictions.append(predictions)
+            with torch.no_grad():  # Désactive la rétropropagation
+                batch_preds = self.forward(batch_user_input, batch_item_input)
+                all_predictions.append(batch_preds)
 
         return torch.cat(all_predictions, dim=0)
 
+# Fonction pour générer des instances d'entraînement
+def get_train_instances(train, num_negatives):
+    user_input, item_input, labels = [], [], []
+    num_items = train.shape[1]
+    for (u, i) in train.keys():
+        # Positive instance
+        user_input.append(u)
+        item_input.append(i)
+        labels.append(1)  # Positive instance label = 1
+        
+        # Negative instances
+        for t in range(num_negatives):
+            j = np.random.randint(num_items)
+            while (u, j) in train:
+                j = np.random.randint(num_items)
+            user_input.append(u)
+            item_input.append(j)
+            labels.append(0)  # Negative instance label = 0
+    return user_input, item_input, labels
 
 if __name__ == '__main__':
     args = parse_args()
@@ -128,7 +144,7 @@ if __name__ == '__main__':
     
     # Check Init performance
     t1 = time()
-    (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
+    (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK)
     hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
     print('Init: HR = %.4f, NDCG = %.4f [%.1f]' %(hr, ndcg, time()-t1))
     
@@ -142,15 +158,17 @@ if __name__ == '__main__':
         # Convert to tensors and move to GPU
         user_input = torch.LongTensor(user_input).to(device)
         item_input = torch.LongTensor(item_input).to(device)
-        labels = torch.LongTensor(labels).to(device)  # Labels should be LongTensor for CrossEntropyLoss
-        
+
+        labels = torch.FloatTensor(labels).to(device)  # Labels should be LongTensor for CrossEntropyLoss
+    
         # Training        
         model.train()
         optimizer.zero_grad()
         predictions = model(user_input, item_input)
         
         # Compute loss
-        loss_fn = nn.CrossEntropyLoss()
+        labels = labels.unsqueeze(1)
+        loss_fn = nn.BCEWithLogitsLoss()
         loss = loss_fn(predictions, labels)
         loss.backward()
         optimizer.step()
@@ -160,14 +178,15 @@ if __name__ == '__main__':
         # Evaluation
         if epoch % verbose == 0:  # Utilisation de verbose pour afficher les résultats chaque X epochs
             model.eval()
-            (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
+            (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK)
             hr, ndcg, loss_val = np.array(hits).mean(), np.array(ndcgs).mean(), loss.item()
             print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]' 
                   % (epoch,  t2-t1, hr, ndcg, loss_val, time()-t2))
             if hr > best_hr:
                 best_hr, best_ndcg, best_iter = hr, ndcg, epoch
-                torch.save(model.state_dict(), model_out_file)
+                # torch.save(model.state_dict(), model_out_file)
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
+
 
 
