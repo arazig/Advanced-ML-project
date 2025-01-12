@@ -13,7 +13,7 @@ _K = None
 
 def evaluate_model(model, testRatings, testNegatives, K):
     """
-    Evaluate the performance (Hit_Ratio, NDCG) of top-K recommendation
+    Evaluate the performance (Normalized Precision@k, NDCG@k) of top-K recommendation
     Return: score of each test rating.
     """
     global _model
@@ -25,20 +25,21 @@ def evaluate_model(model, testRatings, testNegatives, K):
     _testNegatives = testNegatives
     _K = K
         
-    hits, ndcgs = [],[]
-    # Single thread
+    hits, ndcgs, precisions, recalls = [],[], [], []
     for idx in range(len(_testRatings)):
-        (hr,ndcg) = eval_one_rating(idx)
+        (hr,ndcg,p,r) = eval_one_rating(idx)
         hits.append(hr)
-        ndcgs.append(ndcg)      
-    return (hits, ndcgs)
+        ndcgs.append(ndcg)   
+        precisions.append(p)
+        recalls.append(r)   
+    return (hits, ndcgs,precisions,recalls)
 
 def eval_one_rating(idx):
     rating = _testRatings[idx]
     items = _testNegatives[idx]
     u = rating[0]
-    gtItem = rating[1]
-    items.append(gtItem)
+    gtItems = rating[1:]
+    items += gtItems
     # Get prediction scores
     map_item_score = {}
     users = np.full(len(items), u, dtype = 'int32')
@@ -50,19 +51,35 @@ def eval_one_rating(idx):
     
     # Evaluate top rank list
     ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
-    hr = getHitRatio(ranklist, gtItem)
-    ndcg = getNDCG(ranklist, gtItem)
-    return (hr, ndcg)
+    hr = getHR(ranklist, gtItems)
+    ndcg = getNDCG(ranklist, gtItems)
+    precision = get_precision(ranklist, gtItems)
+    recall = get_recall(ranklist, gtItems)
+    return (hr, ndcg, precision, recall)
 
-def getHitRatio(ranklist, gtItem):
+def getHR(ranklist, gtItems):
     for item in ranklist:
-        if item == gtItem:
+        if item in gtItems:
             return 1
     return 0
 
-def getNDCG(ranklist, gtItem):
+def get_precision(ranklist, gtItems):
+    relevant = 0
+    for item in ranklist:
+        if item in gtItems:
+            relevant += 1
+    return relevant / len(ranklist)
+
+def getNDCG(ranklist, gtItems):
     for i in range(len(ranklist)):
         item = ranklist[i]
-        if item == gtItem:
+        if item in gtItems:
             return math.log(2) / math.log(i+2)
     return 0
+
+def get_recall(ranklist, gtItems):
+    relevant = 0
+    for item in ranklist:
+        if item in gtItems:
+            relevant += 1
+    return relevant / len(gtItems)

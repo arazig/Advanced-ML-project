@@ -9,23 +9,27 @@ from load_dataset import Dataset
 
 #################### Arguments ####################
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run MLP.")
+    parser = argparse.ArgumentParser(description="Run NeuMF (PyTorch).")
     parser.add_argument('--path', nargs='?', default='data/',
                         help='Input data path.')
     parser.add_argument('--epochs', type=int, default=100,
                         help='Number of epochs.')
     parser.add_argument('--batch_size', type=int, default=256,
                         help='Batch size.')
-    parser.add_argument('--layers', nargs='?', default='[64,32,16,8]',
-                        help="Size of each layer.")
-    parser.add_argument('--reg_layers', nargs='?', default='[0,0,0,0]',
-                        help="Regularization for each layer.")
+    parser.add_argument('--num_factors', type=int, default=10,
+                        help='Dimensionality of the latent space for MF.')
+    parser.add_argument('--layers', nargs='?', default='[10]',
+                        help="Size of each layer for MLP.")
+    parser.add_argument('--reg_layers', nargs='?', default='[0]',
+                        help="Regularization for each layer in MLP.")
+    parser.add_argument('--reg_mf', type=float, default=0,
+                        help='Regularization for MF embeddings.')
     parser.add_argument('--num_neg', type=int, default=4,
-                        help='Number of negative instances to pair with a positive instance.')
+                        help='Number of negative instances per positive instance.')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='Learning rate.')
     parser.add_argument('--learner', nargs='?', default='adam',
-                        help='Specify an optimizer: adagrad, adam, rmsprop, sgd')
+                        help='Specify an optimizer: adagrad, adam, rmsprop, sgd.')
     parser.add_argument('--verbose', type=int, default=1,
                         help='Show performance per X iterations.')
     return parser.parse_args()
@@ -34,42 +38,61 @@ def parse_args():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Définition du modèle en PyTorch
-class MLPModel(nn.Module):
-    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8], reg_layers=[0, 0, 0, 0]):
-        super(MLPModel, self).__init__()
+#################### Modèle ####################
+class NeuMF(nn.Module):
+    def __init__(self, num_users, num_items, mf_dim, layers, reg_layers, reg_mf):
+        super(NeuMF, self).__init__()
         
-        # Embedding layers
-        self.user_embedding = nn.Embedding(num_users, layers[0] // 2)
-        self.item_embedding = nn.Embedding(num_items, layers[0] // 2)
+        # Embedding pour la partie Matrix Factorization
+        self.mf_user_embedding = nn.Embedding(num_users, mf_dim)
+        self.mf_item_embedding = nn.Embedding(num_items, mf_dim)
         
-        # Fully connected layers
-        layer_sizes = [layers[0]] + layers
-        self.fc_layers = nn.ModuleList()
+        # Embedding pour la partie MLP
+        self.mlp_user_embedding = nn.Embedding(num_users, layers[0] // 2)
+        self.mlp_item_embedding = nn.Embedding(num_items, layers[0] // 2)
         
-        for i in range(1, len(layer_sizes)):
-            self.fc_layers.append(
-                nn.Linear(layer_sizes[i-1], layer_sizes[i])
-            )
-            self.fc_layers.append(nn.ReLU())
+        # Initialisation des couches MLP
+        self.mlp_layers = nn.Sequential()
+        for i in range(1, len(layers)):
+            self.mlp_layers.add_module(f"linear_{i}", nn.Linear(layers[i-1], layers[i]))
+            self.mlp_layers.add_module(f"relu_{i}", nn.ReLU())
         
-        # Final prediction layer
-        self.prediction = nn.Linear(layers[-1], 1)  # Assurez-vous que cela correspond au nombre de classes
+        # Couche finale pour la prédiction
+        predict_size = mf_dim + layers[-1]
+        self.final_layer = nn.Linear(predict_size, 1)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, user_input, item_input):
-        user_latent = self.user_embedding(user_input)
-        item_latent = self.item_embedding(item_input)
+        # MF part
+        mf_user_latent = self.mf_user_embedding(user_input)
+        mf_item_latent = self.mf_item_embedding(item_input)
+        mf_vector = mf_user_latent * mf_item_latent  # Element-wise multiplication
         
-        vector = torch.cat([user_latent, item_latent], dim=-1)
+        # MLP part
+        mlp_user_latent = self.mlp_user_embedding(user_input)
+        mlp_item_latent = self.mlp_item_embedding(item_input)
+        mlp_vector = torch.cat((mlp_user_latent, mlp_item_latent), dim=-1)
+        mlp_vector = self.mlp_layers(mlp_vector)
         
-        for layer in self.fc_layers:
-            vector = layer(vector)
+        # Concatenate MF and MLP parts
+        predict_vector = torch.cat((mf_vector, mlp_vector), dim=-1)
         
-        prediction = self.prediction(vector)
-        
+        # Final prediction
+        prediction = self.final_layer(predict_vector)
         return prediction
     
     def predict(self, user_input, item_input, batch_size=256):
+        """
+        Prédit les scores pour les paires utilisateur-item par lots.
+
+        Args:
+            user_input: Liste ou array des identifiants des utilisateurs.
+            item_input: Liste ou array des identifiants des items.
+            batch_size: Taille du batch pour les prédictions (par défaut 256).
+
+        Returns:
+            torch.Tensor: Les scores prédits pour les paires utilisateur-item.
+        """
         self.eval()  # Met le modèle en mode évaluation
         all_predictions = []
 
@@ -78,13 +101,15 @@ class MLPModel(nn.Module):
             batch_user_input = torch.tensor(user_input[i:i + batch_size], dtype=torch.long).to(device)
             batch_item_input = torch.tensor(item_input[i:i + batch_size], dtype=torch.long).to(device)
 
-            with torch.no_grad():  # Désactive la rétropropagation
+            with torch.no_grad():  # Désactive la rétropropagation pour économiser de la mémoire
                 batch_preds = self.forward(batch_user_input, batch_item_input)
                 all_predictions.append(batch_preds)
 
+        # Concatène toutes les prédictions en un seul tensor
         return torch.cat(all_predictions, dim=0)
 
-# Fonction pour générer des instances d'entraînement
+
+#################### Fonction pour générer les instances d'entraînement ####################
 def get_train_instances(train, num_negatives):
     user_input, item_input, labels = [], [], []
     num_items = train.shape[1]
@@ -104,11 +129,13 @@ def get_train_instances(train, num_negatives):
             labels.append(0)  # Negative instance label = 0
     return user_input, item_input, labels
 
+#################### Main ####################
 if __name__ == '__main__':
     args = parse_args()
-    path = args.path
     layers = eval(args.layers)
     reg_layers = eval(args.reg_layers)
+    mf_dim = args.num_factors
+    reg_mf = args.reg_mf
     num_negatives = args.num_neg
     learner = args.learner
     learning_rate = args.lr
@@ -117,8 +144,7 @@ if __name__ == '__main__':
     verbose = args.verbose
     
     topK = 10
-    evaluation_threads = 1
-    print("MLP arguments: %s " %(args))
+    print("NeuMF arguments: %s " %(args))
     model_out_file = 'Pretrain/%s_MLP_%d.pth' % (args.layers, time())
     
     # Loading data
@@ -130,7 +156,7 @@ if __name__ == '__main__':
           %(time()-t1, num_users, num_items, train.nnz, len(testRatings)))
     
     # Build model and move it to GPU if available
-    model = MLPModel(num_users, num_items, layers, reg_layers).to(device)
+    model = NeuMF(num_users, num_items, mf_dim, layers, reg_layers, reg_mf).to(device)
     
     # Set optimizer
     if learner.lower() == "adagrad": 

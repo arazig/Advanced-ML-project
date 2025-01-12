@@ -12,8 +12,8 @@ class Dataset:
         Constructor
         """
         self.trainMatrix = self.load_rating_file_as_matrix(path + "train.csv")
-        self.testRatings = self.load_rating_file_as_list(path + "test.csv")
-        self.testNegatives = self.load_negative_file(path + "test_negative.csv")
+        self.testRatings = self.load_rating_file_as_list(path + "test_negative_transformed.csv")
+        self.testNegatives = self.load_negative_file(path + "test_negative_transformed.csv")
         assert len(self.testRatings) == len(self.testNegatives)
         
         self.num_users, self.num_items = self.trainMatrix.shape
@@ -24,7 +24,7 @@ class Dataset:
         Each entry is a list containing [user, item].
         """
         df = pd.read_csv(filename)
-        rating_list = df[['user', 'id']].values.tolist()
+        rating_list = df[['user', 'id1', 'id2']].values.tolist()
         return rating_list
     
     def load_negative_file(self, filename):
@@ -38,7 +38,7 @@ class Dataset:
         # Iterate over each row in the dataframe
         for index, row in df.iterrows():
             # Collect the negative items (all columns after 'id' and 'timestamp' are considered negatives)
-            negative_items = row[4:].values.tolist()
+            negative_items = row[7:].values.tolist()
             
             # Append the user and its negative items
             rating_list.append(negative_items)
