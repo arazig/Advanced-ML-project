@@ -1,6 +1,5 @@
 import math
 import heapq # for retrieval topK
-import multiprocessing
 import numpy as np
 from time import time
 #from numba import jit, autojit
@@ -27,14 +26,15 @@ def evaluate_model(model, testRatings, testNegatives, K):
         
     hits, ndcgs, precisions, recalls = [],[], [], []
     for idx in range(len(_testRatings)):
-        (hr,ndcg,p,r) = eval_one_rating(idx)
+        hr, ndcg, p, r = eval_one_rating(idx)
         hits.append(hr)
         ndcgs.append(ndcg)   
         precisions.append(p)
         recalls.append(r)   
-    return (hits, ndcgs,precisions,recalls)
+    return hits, ndcgs, precisions, recalls
 
 def eval_one_rating(idx):
+    hr, ndcg, precision, recall = [], [], [], []
     rating = _testRatings[idx]
     items = _testNegatives[idx]
     u = rating[0]
@@ -48,14 +48,15 @@ def eval_one_rating(idx):
         item = items[i]
         map_item_score[item] = predictions[i].max()
     items.pop()
-    
-    # Evaluate top rank list
-    ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
-    hr = getHR(ranklist, gtItems)
-    ndcg = getNDCG(ranklist, gtItems)
-    precision = get_precision(ranklist, gtItems)
-    recall = get_recall(ranklist, gtItems)
-    return (hr, ndcg, precision, recall)
+
+    # Evaluate top rank list for topK in (1,10)
+    for k in  range(1, _K + 1):
+        ranklist = heapq.nlargest(k, map_item_score, key=map_item_score.get)
+        hr.append(getHR(ranklist, gtItems))
+        ndcg.append(getNDCG(ranklist, gtItems))
+        precision.append(get_precision(ranklist, gtItems))
+        recall.append(get_recall(ranklist, gtItems))
+    return hr, ndcg, precision, recall
 
 def getHR(ranklist, gtItems):
     for item in ranklist:
