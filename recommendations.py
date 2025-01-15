@@ -23,7 +23,7 @@ def plot_images( item_id, df_metadata):
     Plot an item for a given item id.
     """
     nom_item = df_metadata[df_metadata['id'] == item_id]["title"].iloc[0]
-    image_url = df_metadata[df_metadata['id'] == item_id]['images'].iloc[0][0]['large']
+    image_url = df_metadata[df_metadata['id'] == item_id]['images'].iloc[0]
     response = requests.get(image_url)
     img = Image.open(BytesIO(response.content))
 
@@ -56,7 +56,7 @@ def create_image_grid(id_list, df_metadata, items_per_row=4):
         # Get image URL and title from the metadata
         try:
             nom_item = df_metadata[df_metadata['id'] == item_id]["title"].iloc[0]
-            image_url = df_metadata[df_metadata['id'] == item_id]['images'].iloc[0][0]['large']
+            image_url = df_metadata[df_metadata['id'] == item_id]['images'].iloc[0]
             
             # Fetch and open the image
             response = requests.get(image_url)
