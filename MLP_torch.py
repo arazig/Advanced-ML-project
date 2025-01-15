@@ -4,6 +4,7 @@ import torch.optim as optim
 from time import time
 import argparse
 import numpy as np
+import json
 from evaluate import evaluate_model
 from load_dataset import Dataset
 
@@ -117,9 +118,7 @@ if __name__ == '__main__':
     verbose = args.verbose
     
     topK = 10
-    evaluation_threads = 1
     print("MLP arguments: %s " %(args))
-    model_out_file = 'Pretrain/%s_MLP_%d.pth' % (args.layers, time())
     
     # Loading data
     t1 = time()
@@ -138,18 +137,19 @@ if __name__ == '__main__':
     elif learner.lower() == "rmsprop":
         optimizer = optim.RMSprop(model.parameters(), lr=learning_rate)
     elif learner.lower() == "adam":
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     else:
         optimizer = optim.SGD(model.parameters(), lr=learning_rate)    
     
     # Check Init performance
     t1 = time()
     (hits, ndcgs, precisions, recalls) = evaluate_model(model, testRatings, testNegatives, topK)
-    hr, ndcg, p, r = np.array(hits).mean(), np.array(ndcgs).mean(), np.array(precisions).mean(), np.array(recalls).mean()
-    print('Init: HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f [%.1f]' %(hr, ndcg, p, r, time()-t1))
+    hr, ndcg, p, r = np.array(hits).mean(axis=0), np.array(ndcgs).mean(axis=0), np.array(precisions).mean(axis=0), np.array(recalls).mean(axis=0)
+    print('Init: HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f [%.1f]' %(hr[-1], ndcg[-1], p[-1], r[-1], time()-t1))
     
     # Train model
     best_hr, best_ndcg, best_p, best_r, best_iter = hr, ndcg, p, r, -1
+    losses = []
     for epoch in range(epochs):
         t1 = time()
         # Generate training instances
@@ -179,11 +179,26 @@ if __name__ == '__main__':
         if epoch % verbose == 0:  # Utilisation de verbose pour afficher les résultats chaque X epochs
             model.eval()
             (hits, ndcgs, precisions, recalls) = evaluate_model(model, testRatings, testNegatives, topK)
-            hr, ndcg, p, r, loss_val = np.array(hits).mean(), np.array(ndcgs).mean(), np.array(precisions).mean(), np.array(recalls).mean(), loss.item()
+            hr, ndcg, p, r, loss_val = np.array(hits).mean(axis=0)[-1], np.array(ndcgs).mean(axis=0)[-1], np.array(precisions).mean(axis=0)[-1], np.array(recalls).mean(axis=0)[-1], loss.item()
             print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f, loss = %.4f [%.1f s]' 
                   % (epoch,  t2-t1, hr, ndcg, p, r, loss_val, time()-t2))
-            if hr > best_hr:
-                best_hr, best_ndcg, best_p, best_r, best_iter = hr, ndcg, p, r, epoch
+            losses.append(loss_val)
+            if hr > best_hr[-1]:
+                best_hr, best_ndcg, best_p, best_r, best_iter = np.array(hits).mean(axis=0), np.array(ndcgs).mean(axis=0), np.array(precisions).mean(axis=0), np.array(recalls).mean(axis=0), epoch
                 # torch.save(model.state_dict(), model_out_file)
 
-    print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f. " %(best_iter, best_hr, best_ndcg, best_p, best_r))
+    print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f. " %(best_iter, best_hr[-1], best_ndcg[-1], best_p[-1], best_r[-1]))
+
+    data = {
+    "best_hr_mlp": best_hr.tolist(),
+    "best_ndcg_mlp": best_ndcg.tolist(),
+    "best_p_mlp": best_p.tolist(),
+    "best_r_mlp": best_r.tolist(),
+    "losses_mlp": losses
+    }
+
+    file_name = "metrics_mlp.json"
+
+    # Sauvegarde dans un fichier JSON
+    with open(file_name, "w") as f:
+        json.dump(data, f, indent=4)
