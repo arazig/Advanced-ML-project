@@ -19,8 +19,6 @@ def parse_args():
                         help='Batch size.')
     parser.add_argument('--layers', nargs='?', default='[64,32,16,8]',
                         help="Size of each layer.")
-    parser.add_argument('--reg_layers', nargs='?', default='[0,0,0,0]',
-                        help="Regularization for each layer.")
     parser.add_argument('--num_neg', type=int, default=4,
                         help='Number of negative instances to pair with a positive instance.')
     parser.add_argument('--lr', type=float, default=0.001,
@@ -31,13 +29,13 @@ def parse_args():
                         help='Show performance per X iterations.')
     return parser.parse_args()
 
-# Détection du GPU
+# Device setting: CPU or GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Définition du modèle en PyTorch
+# Model class definition
 class MLPModel(nn.Module):
-    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8], reg_layers=[0, 0, 0, 0]):
+    def __init__(self, num_users, num_items, layers=[64, 32, 16, 8]):
         super(MLPModel, self).__init__()
         
         # Embedding layers
@@ -55,7 +53,8 @@ class MLPModel(nn.Module):
             self.fc_layers.append(nn.ReLU())
         
         # Final prediction layer
-        self.prediction = nn.Linear(layers[-1], 1)  # Assurez-vous que cela correspond au nombre de classes
+        self.prediction = nn.Linear(layers[-1], 1)  
+        # The sigmoid function is applied directly in the loss (it is not important here since the sigmoid is an increasing function)
 
     def forward(self, user_input, item_input):
         user_latent = self.user_embedding(user_input)
@@ -71,21 +70,21 @@ class MLPModel(nn.Module):
         return prediction
     
     def predict(self, user_input, item_input, batch_size=256):
-        self.eval()  # Met le modèle en mode évaluation
+        self.eval() 
         all_predictions = []
 
-        # Prédictions par lots
+        # Batch prediction
         for i in range(0, len(user_input), batch_size):
             batch_user_input = torch.tensor(user_input[i:i + batch_size], dtype=torch.long).to(device)
             batch_item_input = torch.tensor(item_input[i:i + batch_size], dtype=torch.long).to(device)
 
-            with torch.no_grad():  # Désactive la rétropropagation
+            with torch.no_grad():  # To save memory
                 batch_preds = self.forward(batch_user_input, batch_item_input)
                 all_predictions.append(batch_preds)
 
         return torch.cat(all_predictions, dim=0)
 
-# Fonction pour générer des instances d'entraînement
+# Generating the training data : 1 postive instance + num_negatives negative samples for each user
 def get_train_instances(train, num_negatives):
     user_input, item_input, labels = [], [], []
     num_items = train.shape[1]
@@ -109,7 +108,6 @@ if __name__ == '__main__':
     args = parse_args()
     path = args.path
     layers = eval(args.layers)
-    reg_layers = eval(args.reg_layers)
     num_negatives = args.num_neg
     learner = args.learner
     learning_rate = args.lr
@@ -129,7 +127,7 @@ if __name__ == '__main__':
           %(time()-t1, num_users, num_items, train.nnz, len(testRatings)))
     
     # Build model and move it to GPU if available
-    model = MLPModel(num_users, num_items, layers, reg_layers).to(device)
+    model = MLPModel(num_users, num_items, layers).to(device)
     
     # Set optimizer
     if learner.lower() == "adagrad": 
@@ -176,7 +174,7 @@ if __name__ == '__main__':
         t2 = time()
 
         # Evaluation
-        if epoch % verbose == 0:  # Utilisation de verbose pour afficher les résultats chaque X epochs
+        if epoch % verbose == 0:
             model.eval()
             (hits, ndcgs, precisions, recalls) = evaluate_model(model, testRatings, testNegatives, topK)
             hr, ndcg, p, r, loss_val = np.array(hits).mean(axis=0)[-1], np.array(ndcgs).mean(axis=0)[-1], np.array(precisions).mean(axis=0)[-1], np.array(recalls).mean(axis=0)[-1], loss.item()
@@ -185,10 +183,10 @@ if __name__ == '__main__':
             losses.append(loss_val)
             if hr > best_hr[-1]:
                 best_hr, best_ndcg, best_p, best_r, best_iter = np.array(hits).mean(axis=0), np.array(ndcgs).mean(axis=0), np.array(precisions).mean(axis=0), np.array(recalls).mean(axis=0), epoch
-                # torch.save(model.state_dict(), model_out_file)
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f. " %(best_iter, best_hr[-1], best_ndcg[-1], best_p[-1], best_r[-1]))
 
+    # Saving metrics in a json file: losses for topK=10 and best recommenders metrics for each topK = 1,...,10
     data = {
     "best_hr_mlp": best_hr.tolist(),
     "best_ndcg_mlp": best_ndcg.tolist(),
@@ -199,6 +197,5 @@ if __name__ == '__main__':
 
     file_name = "metrics_mlp.json"
 
-    # Sauvegarde dans un fichier JSON
     with open(file_name, "w") as f:
         json.dump(data, f, indent=4)

@@ -35,30 +35,30 @@ def parse_args():
                         help='Show performance per X iterations.')
     return parser.parse_args()
 
-# Détection du GPU
+# Setting device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-#################### Modèle ####################
+# NeuMF model class defintion in Pytorch
 class NeuMF(nn.Module):
     def __init__(self, num_users, num_items, mf_dim, layers, reg_layers, reg_mf):
         super(NeuMF, self).__init__()
         
-        # Embedding pour la partie Matrix Factorization
+        # Embedding for the Matrix Factorization part
         self.mf_user_embedding = nn.Embedding(num_users, mf_dim)
         self.mf_item_embedding = nn.Embedding(num_items, mf_dim)
         
-        # Embedding pour la partie MLP
+        # Embedding for the MLP part
         self.mlp_user_embedding = nn.Embedding(num_users, layers[0] // 2)
         self.mlp_item_embedding = nn.Embedding(num_items, layers[0] // 2)
         
-        # Initialisation des couches MLP
+        # MLP layers
         self.mlp_layers = nn.Sequential()
         for i in range(1, len(layers)):
             self.mlp_layers.add_module(f"linear_{i}", nn.Linear(layers[i-1], layers[i]))
             self.mlp_layers.add_module(f"relu_{i}", nn.ReLU())
         
-        # Couche finale pour la prédiction
+        # Final prediction layer
         predict_size = mf_dim + layers[-1]
         self.final_layer = nn.Linear(predict_size, 1)
         self.sigmoid = nn.Sigmoid()
@@ -75,7 +75,7 @@ class NeuMF(nn.Module):
         mlp_vector = torch.cat((mlp_user_latent, mlp_item_latent), dim=-1)
         mlp_vector = self.mlp_layers(mlp_vector)
         
-        # Concatenate MF and MLP parts
+        # Concatenate MF and MLP outputs
         predict_vector = torch.cat((mf_vector, mlp_vector), dim=-1)
         
         # Final prediction
@@ -83,21 +83,10 @@ class NeuMF(nn.Module):
         return prediction
     
     def predict(self, user_input, item_input, batch_size=256):
-        """
-        Prédit les scores pour les paires utilisateur-item par lots.
-
-        Args:
-            user_input: Liste ou array des identifiants des utilisateurs.
-            item_input: Liste ou array des identifiants des items.
-            batch_size: Taille du batch pour les prédictions (par défaut 256).
-
-        Returns:
-            torch.Tensor: Les scores prédits pour les paires utilisateur-item.
-        """
         self.eval()  # Met le modèle en mode évaluation
         all_predictions = []
 
-        # Prédictions par lots
+        # Batch prediction
         for i in range(0, len(user_input), batch_size):
             batch_user_input = torch.tensor(user_input[i:i + batch_size], dtype=torch.long).to(device)
             batch_item_input = torch.tensor(item_input[i:i + batch_size], dtype=torch.long).to(device)
@@ -106,11 +95,10 @@ class NeuMF(nn.Module):
                 batch_preds = self.forward(batch_user_input, batch_item_input)
                 all_predictions.append(batch_preds)
 
-        # Concatène toutes les prédictions en un seul tensor
         return torch.cat(all_predictions, dim=0)
 
 
-#################### Fonction pour générer les instances d'entraînement ####################
+# Generating the training data : 1 postive instance + num_negatives negative samples for each user
 def get_train_instances(train, num_negatives):
     user_input, item_input, labels = [], [], []
     num_items = train.shape[1]
@@ -204,7 +192,7 @@ if __name__ == '__main__':
         t2 = time()
 
         # Evaluation
-        if epoch % verbose == 0:  # Utilisation de verbose pour afficher les résultats chaque X epochs
+        if epoch % verbose == 0:
             model.eval()
             (hits, ndcgs, precisions, recalls) = evaluate_model(model, testRatings, testNegatives, topK)
             hr, ndcg, p, r, loss_val = np.array(hits).mean(axis=0)[-1], np.array(ndcgs).mean(axis=0)[-1], np.array(precisions).mean(axis=0)[-1], np.array(recalls).mean(axis=0)[-1], loss.item()
@@ -213,10 +201,11 @@ if __name__ == '__main__':
             losses.append(loss_val)
             if hr > best_hr[-1]:
                 best_hr, best_ndcg, best_p, best_r, best_iter = np.array(hits).mean(axis=0), np.array(ndcgs).mean(axis=0), np.array(precisions).mean(axis=0), np.array(recalls).mean(axis=0), epoch
-                # torch.save(model.state_dict(), model_out_file)
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f, Precision@k = %.4f, Recall@k = %.4f. " %(best_iter, best_hr[-1], best_ndcg[-1], best_p[-1], best_r[-1]))
 
+    
+    # Saving metrics in a json file: losses for topK=10 and best recommenders metrics for each topK = 1,...,10
     data = {
     "best_hr": best_hr.tolist(),
     "best_ndcg": best_ndcg.tolist(),
@@ -227,6 +216,5 @@ if __name__ == '__main__':
 
     file_name = f"metrics.json"
 
-    # Sauvegarde dans un fichier JSON
     with open(file_name, "w") as f:
         json.dump(data, f, indent=4)
