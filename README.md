@@ -15,7 +15,6 @@ This project implements various recommendation system techniques ranging from ba
 4. [Evaluation Procedure](#evaluation-procedure)
 5. [How to Run the Project](#how-to-run-the-project)
 6. [Requirements](#requirements)
-7. [License](#license)
 
 ## Objective
 The primary objective of this project is to explore and implement different recommendation system techniques, analyze their performance, and identify the most effective ones for generating high-quality recommendations.
@@ -55,9 +54,6 @@ The **2023 Amazon Reviews Dataset** is used, which contains user-item interactio
 6. **Multilayer Perceptron (MLP)**  
    Deep learning model using multiple layers of neurons to capture complex patterns in user-item relationships.
 
-7. **Neural Collaborative Filtering (NCF)**  
-   A hybrid approach combining **MLP** and **latent factor models** to learn complex, high-order interactions between users and items.
-
 ## Evaluation Procedure
 
 ### Leave-2-Out Procedure
@@ -86,16 +82,26 @@ pip install -r requirements.txt
 ```
 
 ### Step 3: Run the Code
-You can run the main scripts for each recommendation method (e.g., `cosine_similarity.py`, `svd.py`, etc.) to test the models individually or run the entire pipeline. For example:
+
+You can run the main scripts for each recommendation method (e.g., `cosine_similarity.ipynb`, `svd.ipynb`, etc.) to test the models individually. 
+
+For BMF we run the **`Binary_Matrix_Factorization.ipynb`** notebook. For the MLP and NeuMF we implement and adapt in Pytorch the models (inspired by the *Neural Collaborative Filtering* paper authors implementation in TensorFlow). We use **`MLP_exp.py`** and **`NeuMF_exp.py`** files with others functionals files. To execute the code, simply copy-past this line into the terminal. You can customize the model settings as you wish.
+
 ```bash
-TODO
+python MLP_exp.py --epochs 20 --batch_size 256 --layers [64,32,16,8]  --num_neg 4 --lr 0.3 --learner adam --verbose 1
 ```
 
+```bash
+python NeuMF_exp.py --epochs 20 --batch_size 256 --num_factors 8 --layers [64,32,16,8] --num_neg 4 --lr 0.1 --learner adam --verbose 1
+```
+
+The metrics are stored in files **"metrics_{*model*}.json"** (after runing the *python files* for NeuMF and MLP, and the notebook *(4)_Binary_Matrix_Fcatorization.ipynb* for BMF), you can plot them we ready to use code in the experiment notebook (5).
+
 ### Step 4: Evaluate Models
-After running the models, use the evaluation script to calculate **HR**, **NDCG**, **Precision**, and **Recall** on the dataset.
+After running the models, use the **`(5)_Experiments.ipynb`** notebook to plots **HR**, **NDCG**, **Precision**, and **Recall** for BMF, MLP and NeuMF models.
 
 ### Step 5: Results
-The results of the different models' performance can be found in the `results/` directory.
+The results of the different models can be found in each associated notebook from (1) to (5). 
 
 ## Requirements
 - **Python 3.8+**
@@ -105,5 +111,5 @@ The results of the different models' performance can be found in the `results/` 
   - `matplotlib`
   - `scikit-learn`
   - `pytorch`
-  - `torch`
+  - `torch` ...
 - CPU or **GPU** for faster training on neural models.
