@@ -83,6 +83,11 @@ pip install -r requirements.txt
 
 ### Step 3: Run the Code
 
+#### Prepocessing of the data : 
+All the data used for the models is **already available in the `\data` folder** ✅.
+To understand how data preprocessing was carried out, we invite you to consult the `Preprocess_datasets.ipynb` notebook, which enables us to create our sample, the train sample and the test sample with leave-2-out.
+
+#### Excecute the models: 
 You can run the main scripts for each recommendation method (e.g., `cosine_similarity.ipynb`, `svd.ipynb`, etc.) to test the models individually. 
 
 For BMF we run the **`Binary_Matrix_Factorization.ipynb`** notebook. For the MLP and NeuMF we implement and adapt in Pytorch the models (inspired by the *Neural Collaborative Filtering* paper authors implementation in TensorFlow). We use **`MLP_exp.py`** and **`NeuMF_exp.py`** files with others functionals files. To execute the code, simply copy-past this line into the terminal. You can customize the model settings as you wish.
@@ -101,7 +106,7 @@ The metrics are stored in files **"metrics_{*model*}.json"** (after runing the *
 After running the models, use the **`(5)_Experiments.ipynb`** notebook to plots **HR**, **NDCG**, **Precision**, and **Recall** for BMF, MLP and NeuMF models.
 
 ### Step 5: Results
-The results of the different models can be found in each associated notebook from (1) to (5). 
+The results and visualization of the different models can be found in each associated notebook from (1) to (5). 
 
 ## Requirements
 - **Python 3.8+**
